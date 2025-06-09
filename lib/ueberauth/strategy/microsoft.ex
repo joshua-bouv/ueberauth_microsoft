@@ -11,45 +11,39 @@ defmodule Ueberauth.Strategy.Microsoft do
   Handles initial request for Microsoft authentication.
   """
   def handle_request!(conn) do
-    default_scopes = option(conn, :default_scope)
-    extra_scopes = option(conn, :extra_scopes)
+    scopes = conn.params["scope"] || option(conn, :default_scope)
+    prompt = conn.params["prompt"] || option(conn, :prompt)
 
-    scopes = "#{extra_scopes} #{default_scopes}"
+    params =
+      [scope: scopes, prompt: prompt]
+      |> with_scopes(:extra_scopes, conn)
+      |> with_state_param(conn)
+      |> with_param(:lc, conn)
 
-    authorize_url =
-      conn.params
-      |> Map.put(:scope, scopes)
-      |> Map.put(:redirect_uri, callback_url(conn))
-      |> OAuth.authorize_url!()
-
-    redirect!(conn, authorize_url)
+    opts = oauth_client_options_from_conn(conn)
+    redirect!(conn, Ueberauth.Strategy.Microsoft.OAuth.authorize_url!(params, opts))
   end
 
   @doc """
   Handles the callback from Microsoft.
   """
   def handle_callback!(%Plug.Conn{params: %{"code" => code}} = conn) do
-    opts = [redirect_uri: callback_url(conn)]
-    
-    case OAuth.get_token!([code: code], opts) do
-      {:ok, client} ->
-        token = client.token
+    opts = conn |> options() |> Keyword.put(:redirect_uri, callback_url(conn))
+    client = OAuth.get_token!([code: code], opts)
+    token = client.token
 
-        case token.access_token do
-          nil ->
-            err = token.other_params["error"]
-            desc = token.other_params["error_description"]
-            set_errors!(conn, [error(err, desc)])
-
-          _token ->
-            fetch_user(conn, client)
-        end
-
-      {:error, error} ->
-        err = error.body["error"]
-        desc = error.body["error_description"]
+    case token.access_token do
+      nil ->
+        err = token.other_params["error"]
+        desc = token.other_params["error_description"]
         set_errors!(conn, [error(err, desc)])
+
+      _token ->
+        fetch_user(conn, client)
     end
+  rescue
+    err in [Error] ->
+      set_errors!(conn, [error("OAuth2", err.reason)])
   end
 
   @doc false
@@ -75,11 +69,13 @@ defmodule Ueberauth.Strategy.Microsoft do
 
   def credentials(conn) do
     token = conn.private.ms_token
+    scope_string = token.other_params["scope"] || ""
+    scopes = String.split(scope_string, " ", trim: true)
 
     %Credentials{
       expires: token.expires_at != nil,
       expires_at: token.expires_at,
-      scopes: token.other_params["scope"],
+      scopes: scopes,
       token: token.access_token,
       refresh_token: token.refresh_token,
       token_type: token.token_type
@@ -117,8 +113,38 @@ defmodule Ueberauth.Strategy.Microsoft do
       {:ok, %Response{status_code: status, body: response}} when status in 200..299 ->
         put_private(conn, :ms_user, response)
 
+      {:error, %Response{body: %{"error" => %{"code" => code, "message" => reason}}}} ->
+        set_errors!(conn, [error(code, reason)])
+
       {:error, %Error{reason: reason}} ->
         set_errors!(conn, [error("OAuth2", reason)])
+    end
+  end
+
+  defp with_scopes(opts, key, conn) do
+    if option(conn, key),
+      do: Keyword.put(opts, :scope, "#{Keyword.get(opts, :scope, "")} #{option(conn, key)}"),
+      else: opts
+  end
+
+  defp oauth_client_options_from_conn(conn) do
+    base_options = [redirect_uri: callback_url(conn)]
+    request_options = conn.private[:ueberauth_request_options].options
+
+    request_options =
+      Keyword.take(request_options, [
+        :tenant_id,
+        :client_id,
+        :client_secret,
+        :authorize_url,
+        :token_url,
+        :request_opts
+      ])
+
+    if nil in Keyword.values(request_options) do
+      base_options
+    else
+      request_options ++ base_options
     end
   end
 
@@ -128,5 +154,9 @@ defmodule Ueberauth.Strategy.Microsoft do
     conn
     |> options
     |> Keyword.get(key, default)
+  end
+
+  defp with_param(opts, key, conn) do
+    if value = conn.params[to_string(key)], do: Keyword.put(opts, key, value), else: opts
   end
 end

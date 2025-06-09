@@ -7,13 +7,14 @@ defmodule Ueberauth.Strategy.Microsoft.OAuth do
   alias OAuth2.Strategy.Refresh
 
   def client(opts \\ []) do
-    config = Application.get_env(:ueberauth, __MODULE__)
+    config = Application.get_env(:ueberauth, __MODULE__, [])
     json_library = Ueberauth.json_library()
 
     config
     |> defaults()
     |> Keyword.merge(config)
     |> Keyword.merge(opts)
+    |> generate_secret()
     |> Client.new()
     |> OAuth2.Client.put_serializer("application/json", json_library)
   end
@@ -31,7 +32,7 @@ defmodule Ueberauth.Strategy.Microsoft.OAuth do
   end
 
   def refresh_token!(params \\ [], opts \\ []) do
-    opts ++ [token: %OAuth2.AccessToken{refresh_token: params[:refresh_token]}]
+    (opts ++ [token: %OAuth2.AccessToken{refresh_token: params[:refresh_token]}])
     |> client
     |> Client.refresh_token(params)
   end
@@ -64,7 +65,18 @@ defmodule Ueberauth.Strategy.Microsoft.OAuth do
       site: "https://login.microsoftonline.com/#{tenant_id}/oauth2/v2.0",
       authorize_url: "https://login.microsoftonline.com/#{tenant_id}/oauth2/v2.0/authorize",
       token_url: "/token",
+      # token_url: "https://login.microsoftonline.com/#{tenant_id}/oauth2/v2.0/token",
       request_opts: [ssl_options: [versions: [:"tlsv1.2"]]]
     ]
+  end
+
+  defp generate_secret(opts) do
+    if is_tuple(opts[:client_secret]) do
+      {module, fun} = opts[:client_secret]
+      secret = apply(module, fun, [opts])
+      Keyword.put(opts, :client_secret, secret)
+    else
+      opts
+    end
   end
 end
