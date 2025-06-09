@@ -28,13 +28,13 @@ defmodule Ueberauth.Strategy.Microsoft.OAuth do
   def get_token!(params \\ [], opts \\ []) do
     opts
     |> client
-    |> Client.get_token(params)
+    |> Client.get_token!(params)
   end
 
   def refresh_token!(params \\ [], opts \\ []) do
     (opts ++ [token: %OAuth2.AccessToken{refresh_token: params[:refresh_token]}])
     |> client
-    |> Client.refresh_token(params)
+    |> Client.refresh_token!(params)
   end
 
   # oauth2 Strategy Callbacks
@@ -62,11 +62,9 @@ defmodule Ueberauth.Strategy.Microsoft.OAuth do
 
     [
       strategy: __MODULE__,
-      site: "https://login.microsoftonline.com/#{tenant_id}/oauth2/v2.0",
+      site: "https://graph.microsoft.com",
       authorize_url: "https://login.microsoftonline.com/#{tenant_id}/oauth2/v2.0/authorize",
-      token_url: "/token",
-      # token_url: "https://login.microsoftonline.com/#{tenant_id}/oauth2/v2.0/token",
-      request_opts: [ssl_options: [versions: [:"tlsv1.2"]]]
+      token_url: "https://login.microsoftonline.com/#{tenant_id}/oauth2/v2.0/token"
     ]
   end
 

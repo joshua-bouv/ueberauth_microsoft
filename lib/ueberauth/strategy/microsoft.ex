@@ -107,7 +107,7 @@ defmodule Ueberauth.Strategy.Microsoft do
     path = "https://graph.microsoft.com/v1.0/me/"
 
     case OAuth2.Client.get(client, path) do
-      {:ok, %Response{status_code: status}} when status in 400..499 ->
+      {:ok, %Response{status_code: 401}} ->
         set_errors!(conn, [error("token", "unauthorized")])
 
       {:ok, %Response{status_code: status, body: response}} when status in 200..299 ->
